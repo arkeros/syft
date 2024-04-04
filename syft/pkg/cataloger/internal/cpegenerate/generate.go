@@ -35,7 +35,7 @@ func newCPE(product, vendor, version, targetSW string) *cpe.Attributes {
 	return &c
 }
 
-//go:embed dictionary/data/cpe-index.json
+//go:embed data/cpe-index.json
 var indexedCPEDictionaryData []byte
 
 var indexedCPEDictionary *dictionary.Indexed
