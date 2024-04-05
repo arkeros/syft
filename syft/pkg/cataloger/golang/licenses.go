@@ -15,9 +15,6 @@ import (
 	"strings"
 
 	"github.com/go-git/go-billy/v5/memfs"
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/scylladb/go-set/strset"
 
 	"github.com/anchore/syft/internal/licenses"
@@ -277,25 +274,9 @@ func findVersionPath(f fs.FS, dir string) string {
 }
 
 func getModuleRepository(moduleName string, moduleVersion string) (fs.FS, error) {
-	repoName := moduleName
-	parts := strings.Split(moduleName, "/")
-	if len(parts) > 2 {
-		repoName = fmt.Sprintf("%s/%s/%s", parts[0], parts[1], parts[2])
-	}
+	// TODO: restore original. deleted to remove circl
 
 	f := memfs.New()
-	buf := &bytes.Buffer{}
-	_, err := git.Clone(memory.NewStorage(), f, &git.CloneOptions{
-		URL:           fmt.Sprintf("https://%s", repoName),
-		ReferenceName: plumbing.NewTagReferenceName(moduleVersion), // FIXME version might be a SHA
-		SingleBranch:  true,
-		Depth:         1,
-		Progress:      buf,
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("%w -- %s", err, buf.String())
-	}
 
 	return billyFSAdapter{fs: f}, nil
 }
