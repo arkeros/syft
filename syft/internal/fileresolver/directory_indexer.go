@@ -9,13 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/moby/sys/mountinfo"
 	"github.com/wagoodman/go-partybus"
 	"github.com/wagoodman/go-progress"
 
 	"github.com/anchore/stereoscope/pkg/file"
 	"github.com/anchore/stereoscope/pkg/filetree"
-	"github.com/anchore/syft/internal"
 	"github.com/anchore/syft/internal/bus"
 	"github.com/anchore/syft/internal/log"
 	"github.com/anchore/syft/syft/event"
@@ -43,7 +41,8 @@ func newDirectoryIndexer(path, base string, visitors ...PathIndexVisitor) *direc
 			[]PathIndexVisitor{
 				requireFileInfo,
 				disallowByFileType,
-				newUnixSystemMountFinder().disallowUnixSystemRuntimePath},
+				skipPathsByMountTypeAndName(path),
+			},
 			visitors...,
 		),
 		errPaths: make(map[string]error),
@@ -380,6 +379,28 @@ func (r directoryIndexer) addSymlinkToIndex(p string, info os.FileInfo) (string,
 			// if the base is set, then we first need to resolve the link,
 			// before finding it's location in the base
 			dir, err := filepath.Rel(r.base, filepath.Dir(p))
+			// if the relative path to the base contains "..",i.e. p is the parent or ancestor of the base
+			// For example:
+			// dir: "/root/asymlink" -> "/root/realdir" (linkTarget:"realdir")
+			// base: "/root/asymlink"
+			// so the relative path of /root to the "/root/asymlink" is ".."
+			// we cannot directly concatenate ".." to "/root/symlink",however,
+			// the parent directory of linkTarget should be "/root"
+			for strings.HasPrefix(dir, "..") {
+				if strings.HasPrefix(dir, "../") {
+					dir = strings.TrimPrefix(dir, "../")
+				} else {
+					dir = strings.TrimPrefix(dir, "..")
+				}
+				lastSlash := strings.LastIndex(r.base, "/")
+				if lastSlash != -1 {
+					r.base = r.base[:lastSlash]
+				}
+				// In case of the root directory
+				if r.base == "" {
+					r.base = "/"
+				}
+			}
 			if err != nil {
 				return "", fmt.Errorf("unable to resolve relative path for path=%q: %w", p, err)
 			}
@@ -446,57 +467,6 @@ func (r *directoryIndexer) disallowRevisitingVisitor(_, path string, _ os.FileIn
 			return fs.SkipDir
 		}
 		return ErrSkipPath
-	}
-	return nil
-}
-
-type unixSystemMountFinder struct {
-	disallowedMountPaths []string
-}
-
-func newUnixSystemMountFinder() unixSystemMountFinder {
-	infos, err := mountinfo.GetMounts(nil)
-	if err != nil {
-		log.WithFields("error", err).Warnf("unable to get system mounts")
-		return unixSystemMountFinder{}
-	}
-
-	return unixSystemMountFinder{
-		disallowedMountPaths: keepUnixSystemMountPaths(infos),
-	}
-}
-
-func keepUnixSystemMountPaths(infos []*mountinfo.Info) []string {
-	var mountPaths []string
-	for _, info := range infos {
-		if info == nil {
-			continue
-		}
-		// we're only interested in ignoring the logical filesystems typically found at these mount points:
-		// - /proc
-		//     - procfs
-		//     - proc
-		// - /sys
-		//     - sysfs
-		// - /dev
-		//     - devfs - BSD/darwin flavored systems and old linux systems
-		//     - devtmpfs - driver core maintained /dev tmpfs
-		//     - udev - userspace implementation that replaced devfs
-		//     - tmpfs - used for /dev in special instances (within a container)
-
-		switch info.FSType {
-		case "proc", "procfs", "sysfs", "devfs", "devtmpfs", "udev", "tmpfs":
-			log.WithFields("mountpoint", info.Mountpoint).Debug("ignoring system mountpoint")
-
-			mountPaths = append(mountPaths, info.Mountpoint)
-		}
-	}
-	return mountPaths
-}
-
-func (f unixSystemMountFinder) disallowUnixSystemRuntimePath(_, path string, _ os.FileInfo, _ error) error {
-	if internal.HasAnyOfPrefixes(path, f.disallowedMountPaths...) {
-		return fs.SkipDir
 	}
 	return nil
 }

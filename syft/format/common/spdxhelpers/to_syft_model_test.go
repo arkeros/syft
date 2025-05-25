@@ -414,6 +414,66 @@ func Test_toSyftRelationships(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "dependency-of relationship",
+			args: args{
+				spdxIDMap: map[string]any{
+					string(toSPDXID(pkg2)): pkg2,
+					string(toSPDXID(pkg3)): pkg3,
+				},
+				doc: &spdx.Document{
+					Relationships: []*spdx.Relationship{
+						{
+							RefA: common.DocElementID{
+								ElementRefID: toSPDXID(pkg2),
+							},
+							RefB: common.DocElementID{
+								ElementRefID: toSPDXID(pkg3),
+							},
+							Relationship:        spdx.RelationshipDependencyOf,
+							RelationshipComment: "dependency-of: indicates that the package in RefA is a dependency of the package in RefB",
+						},
+					},
+				},
+			},
+			want: []artifact.Relationship{
+				{
+					From: pkg2,
+					To:   pkg3,
+					Type: artifact.DependencyOfRelationship,
+				},
+			},
+		},
+		{
+			name: "dependends-on relationship",
+			args: args{
+				spdxIDMap: map[string]any{
+					string(toSPDXID(pkg2)): pkg2,
+					string(toSPDXID(pkg3)): pkg3,
+				},
+				doc: &spdx.Document{
+					Relationships: []*spdx.Relationship{
+						{
+							RefA: common.DocElementID{
+								ElementRefID: toSPDXID(pkg3),
+							},
+							RefB: common.DocElementID{
+								ElementRefID: toSPDXID(pkg2),
+							},
+							Relationship:        spdx.RelationshipDependsOn,
+							RelationshipComment: "dependends-on: indicates that the package in RefA depends on the package in RefB",
+						},
+					},
+				},
+			},
+			want: []artifact.Relationship{
+				{
+					From: pkg2,
+					To:   pkg3,
+					Type: artifact.DependencyOfRelationship,
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -604,7 +664,7 @@ func Test_directPackageFiles(t *testing.T) {
 		Packages: []*spdx.Package{
 			{
 				PackageName:           "some-package",
-				PackageSPDXIdentifier: "1",
+				PackageSPDXIdentifier: "1", // important!
 				PackageVersion:        "1.0.5",
 				Files: []*spdx.File{
 					{
@@ -629,7 +689,7 @@ func Test_directPackageFiles(t *testing.T) {
 		Name:    "some-package",
 		Version: "1.0.5",
 	}
-	p.SetID()
+	p.OverrideID("1") // the same as the spdxID on the package element
 	f := file.Location{
 		LocationData: file.LocationData{
 			Coordinates: file.Coordinates{
@@ -669,4 +729,33 @@ func Test_directPackageFiles(t *testing.T) {
 	}
 
 	require.Equal(t, s, got)
+}
+
+func Test_useSPDXIdentifierOverDerivedSyftArtifactID(t *testing.T) {
+	doc := &spdx.Document{
+		SPDXVersion: "SPDX-2.3",
+		Packages: []*spdx.Package{
+			{
+				PackageName:           "some-package",
+				PackageSPDXIdentifier: "1", // important!
+				PackageVersion:        "1.0.5",
+				Files: []*spdx.File{
+					{
+						FileName:           "some-file",
+						FileSPDXIdentifier: "2",
+						Checksums: []spdx.Checksum{
+							{
+								Algorithm: "SHA1",
+								Value:     "a8d733c64f9123",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	s, err := ToSyftModel(doc)
+
+	assert.Nil(t, err)
+	assert.NotNil(t, s.Artifacts.Packages.Package("1"))
 }

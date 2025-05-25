@@ -6,17 +6,20 @@ package binary
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/anchore/syft/internal/log"
+	"github.com/anchore/syft/internal/unknown"
 	"github.com/anchore/syft/syft/artifact"
 	"github.com/anchore/syft/syft/file"
 	"github.com/anchore/syft/syft/pkg"
+	"github.com/anchore/syft/syft/pkg/cataloger/internal/binutils"
 )
 
 const catalogerName = "binary-classifier-cataloger"
 
 type ClassifierCatalogerConfig struct {
-	Classifiers []Classifier `yaml:"classifiers" json:"classifiers" mapstructure:"classifiers"`
+	Classifiers []binutils.Classifier `yaml:"classifiers" json:"classifiers" mapstructure:"classifiers"`
 }
 
 func DefaultClassifierCatalogerConfig() ClassifierCatalogerConfig {
@@ -46,7 +49,7 @@ func (cfg ClassifierCatalogerConfig) MarshalJSON() ([]byte, error) {
 // related runtimes like Python, Go, Java, or Node. Some exceptions can be made for widely-used binaries such
 // as busybox.
 type cataloger struct {
-	classifiers []Classifier
+	classifiers []binutils.Classifier
 }
 
 // Name returns a string that uniquely describes the cataloger
@@ -59,12 +62,14 @@ func (c cataloger) Name() string {
 func (c cataloger) Catalog(_ context.Context, resolver file.Resolver) ([]pkg.Package, []artifact.Relationship, error) {
 	var packages []pkg.Package
 	var relationships []artifact.Relationship
+	var errs error
 
 	for _, cls := range c.classifiers {
 		log.WithFields("classifier", cls.Class).Trace("cataloging binaries")
 		newPkgs, err := catalog(resolver, cls)
 		if err != nil {
-			log.WithFields("error", err, "classifier", cls.Class).Warn("unable to catalog binary package: %w", err)
+			log.WithFields("error", err, "classifier", cls.Class).Debugf("unable to catalog binary package: %v", err)
+			errs = unknown.Join(errs, fmt.Errorf("%s: %w", cls.Class, err))
 			continue
 		}
 	newPackages:
@@ -82,7 +87,7 @@ func (c cataloger) Catalog(_ context.Context, resolver file.Resolver) ([]pkg.Pac
 		}
 	}
 
-	return packages, relationships, nil
+	return packages, relationships, errs
 }
 
 // mergePackages merges information from the extra package into the target package
@@ -97,19 +102,22 @@ func mergePackages(target *pkg.Package, extra *pkg.Package) {
 	target.Metadata = meta
 }
 
-func catalog(resolver file.Resolver, cls Classifier) (packages []pkg.Package, err error) {
+func catalog(resolver file.Resolver, cls binutils.Classifier) (packages []pkg.Package, err error) {
+	var errs error
 	locations, err := resolver.FilesByGlob(cls.FileGlob)
 	if err != nil {
+		err = unknown.ProcessPathErrors(err) // convert any file.Resolver path errors to unknowns with locations
 		return nil, err
 	}
 	for _, location := range locations {
-		pkgs, err := cls.EvidenceMatcher(resolver, cls, location)
+		pkgs, err := cls.EvidenceMatcher(cls, binutils.MatcherContext{Resolver: resolver, Location: location})
 		if err != nil {
-			return nil, err
+			errs = unknown.Append(errs, location, err)
+			continue
 		}
 		packages = append(packages, pkgs...)
 	}
-	return packages, nil
+	return packages, errs
 }
 
 // packagesMatch returns true if the binary packages "match" based on basic criteria

@@ -113,6 +113,14 @@ func Test_SourceInfo(t *testing.T) {
 		},
 		{
 			input: pkg.Package{
+				Type: pkg.GraalVMNativeImagePkg,
+			},
+			expected: []string{
+				"from GraalVM native image",
+			},
+		},
+		{
+			input: pkg.Package{
 				Type: pkg.RustPkg,
 			},
 			expected: []string{
@@ -133,6 +141,14 @@ func Test_SourceInfo(t *testing.T) {
 			},
 			expected: []string{
 				"from PHP Pecl manifest",
+			},
+		},
+		{
+			input: pkg.Package{
+				Type: pkg.PhpPearPkg,
+			},
+			expected: []string{
+				"from PHP Pear manifest",
 			},
 		},
 		{
@@ -201,6 +217,14 @@ func Test_SourceInfo(t *testing.T) {
 		},
 		{
 			input: pkg.Package{
+				Type: pkg.BitnamiPkg,
+			},
+			expected: []string{
+				"acquired package info from a Bitnami SBOM",
+			},
+		},
+		{
+			input: pkg.Package{
 				Type: pkg.HexPkg,
 			},
 			expected: []string{
@@ -249,10 +273,34 @@ func Test_SourceInfo(t *testing.T) {
 		},
 		{
 			input: pkg.Package{
+				Type: pkg.LuaRocksPkg,
+			},
+			expected: []string{
+				"acquired package info from Rockspec package file",
+			},
+		},
+		{
+			input: pkg.Package{
 				Type: pkg.SwiftPkg,
 			},
 			expected: []string{
 				"from resolved Swift package manifest",
+			},
+		},
+		{
+			input: pkg.Package{
+				Type: pkg.SwiplPackPkg,
+			},
+			expected: []string{
+				"acquired package info from SWI Prolo pack package file",
+			},
+		},
+		{
+			input: pkg.Package{
+				Type: pkg.OpamPkg,
+			},
+			expected: []string{
+				"acquired package info from OCaml opam package file",
 			},
 		},
 		{
@@ -277,6 +325,22 @@ func Test_SourceInfo(t *testing.T) {
 			},
 			expected: []string{
 				"acquired package info from found wordpress plugin PHP source files",
+			},
+		},
+		{
+			input: pkg.Package{
+				Type: pkg.HomebrewPkg,
+			},
+			expected: []string{
+				"acquired package info from Homebrew formula",
+			},
+		},
+		{
+			input: pkg.Package{
+				Type: pkg.TerraformPkg,
+			},
+			expected: []string{
+				"acquired package info from Terraform dependency lock file",
 			},
 		},
 	}

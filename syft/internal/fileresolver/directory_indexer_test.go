@@ -1,16 +1,17 @@
 package fileresolver
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/moby/sys/mountinfo"
 	"github.com/scylladb/go-set/strset"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -224,6 +225,55 @@ func TestDirectoryIndexer_index(t *testing.T) {
 	}
 }
 
+func TestDirectoryIndexer_index_for_AncestorSymlinks(t *testing.T) {
+	// note: this test is testing the effects from NewFromDirectory, indexTree, and addPathToIndex
+	_, filename, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	dir := filepath.Dir(filename)
+
+	tests := []struct {
+		name          string
+		path          string
+		relative_base string
+	}{
+		{
+			name:          "the parent directory has symlink target",
+			path:          "test-fixtures/system_paths/target/symlinks-to-dev",
+			relative_base: "test-fixtures/system_paths/target/symlinks-to-dev",
+		},
+		{
+			name:          "the ancestor directory has symlink target",
+			path:          "test-fixtures/system_paths/target/symlinks-to-hierarchical-dev",
+			relative_base: "test-fixtures/system_paths/target/symlinks-to-hierarchical-dev/module_1/module_1_1",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			indexer := newDirectoryIndexer("test-fixtures/system_paths/target",
+				fmt.Sprintf("%v/%v", dir, test.relative_base))
+			tree, index, err := indexer.build()
+			require.NoError(t, err)
+			info, err := os.Stat(test.path)
+			assert.NoError(t, err)
+
+			// note: the index uses absolute paths, so assertions MUST keep this in mind
+			cwd, err := os.Getwd()
+			require.NoError(t, err)
+
+			p := file.Path(path.Join(cwd, test.path))
+			assert.Equal(t, true, tree.HasPath(p))
+			exists, ref, err := tree.File(p)
+			assert.Equal(t, true, exists)
+			if assert.NoError(t, err) {
+				return
+			}
+
+			entry, err := index.Get(*ref.Reference)
+			require.NoError(t, err)
+			assert.Equal(t, info.Mode(), entry.Mode)
+		})
+	}
+}
 func TestDirectoryIndexer_index_survive_badSymlink(t *testing.T) {
 	// test-fixtures/bad-symlinks
 	// ├── root
@@ -461,146 +511,4 @@ func relativePath(basePath, givenPath string) string {
 	}
 
 	return relPath
-}
-
-func Test_disallowUnixSystemRuntimePath(t *testing.T) {
-	unixSubject := unixSystemMountFinder{
-		// mock out detecting the mount points
-		disallowedMountPaths: []string{"/proc", "/sys", "/dev"},
-	}
-
-	tests := []struct {
-		name     string
-		path     string
-		base     string
-		expected error
-	}{
-		{
-			name: "relative path to proc is allowed",
-			path: "proc/place",
-		},
-		{
-			name:     "relative path within proc is not allowed",
-			path:     "/proc/place",
-			expected: fs.SkipDir,
-		},
-		{
-			name:     "path exactly to proc is not allowed",
-			path:     "/proc",
-			expected: fs.SkipDir,
-		},
-		{
-			name: "similar to proc",
-			path: "/pro/c",
-		},
-		{
-			name: "similar to proc",
-			path: "/pro",
-		},
-		{
-			name:     "dev is not allowed",
-			path:     "/dev",
-			expected: fs.SkipDir,
-		},
-		{
-			name:     "sys is not allowed",
-			path:     "/sys",
-			expected: fs.SkipDir,
-		},
-		{
-			name: "unrelated allowed path",
-			path: "/something/sys",
-		},
-		{
-			name: "do not consider base when matching paths (non-matching)",
-			base: "/a/b/c",
-			path: "/a/b/c/dev",
-		},
-		{
-			name:     "do not consider base when matching paths (matching)",
-			base:     "/a/b/c",
-			path:     "/dev",
-			expected: fs.SkipDir,
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.path, func(t *testing.T) {
-			assert.Equal(t, test.expected, unixSubject.disallowUnixSystemRuntimePath(test.base, test.path, nil, nil))
-		})
-	}
-}
-
-func Test_keepUnixSystemMountPaths(t *testing.T) {
-
-	tests := []struct {
-		name  string
-		infos []*mountinfo.Info
-		want  []string
-	}{
-		{
-			name: "all valid filesystems",
-			infos: []*mountinfo.Info{
-				{
-					Mountpoint: "/etc/hostname",
-					FSType:     "/dev/vda1",
-				},
-				{
-					Mountpoint: "/sys/fs/cgroup",
-					FSType:     "cgroup",
-				},
-				{
-					Mountpoint: "/",
-					FSType:     "overlay",
-				},
-			},
-			want: nil,
-		},
-		{
-			name: "no valid filesystems",
-			infos: []*mountinfo.Info{
-				{
-					Mountpoint: "/proc",
-					FSType:     "proc",
-				},
-				{
-					Mountpoint: "/proc-2",
-					FSType:     "procfs",
-				},
-				{
-					Mountpoint: "/sys",
-					FSType:     "sysfs",
-				},
-				{
-					Mountpoint: "/dev",
-					FSType:     "devfs",
-				},
-				{
-					Mountpoint: "/dev-u",
-					FSType:     "udev",
-				},
-				{
-					Mountpoint: "/dev-tmp",
-					FSType:     "devtmpfs",
-				},
-				{
-					Mountpoint: "/run",
-					FSType:     "tmpfs",
-				},
-			},
-			want: []string{
-				"/proc",
-				"/proc-2",
-				"/sys",
-				"/dev",
-				"/dev-u",
-				"/dev-tmp",
-				"/run",
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, keepUnixSystemMountPaths(tt.infos))
-		})
-	}
 }

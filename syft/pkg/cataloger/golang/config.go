@@ -2,11 +2,10 @@ package golang
 
 import (
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
 
-	"github.com/mitchellh/go-homedir"
-
+	"github.com/anchore/go-homedir"
 	"github.com/anchore/syft/internal/log"
 )
 
@@ -22,6 +21,8 @@ var (
 type CatalogerConfig struct {
 	SearchLocalModCacheLicenses bool                    `yaml:"search-local-mod-cache-licenses" json:"search-local-mod-cache-licenses" mapstructure:"search-local-mod-cache-licenses"`
 	LocalModCacheDir            string                  `yaml:"local-mod-cache-dir" json:"local-mod-cache-dir" mapstructure:"local-mod-cache-dir"`
+	SearchLocalVendorLicenses   bool                    `yaml:"search-local-vendor-licenses" json:"search-local-vendor-licenses" mapstructure:"search-local-vendor-licenses"`
+	LocalVendorDir              string                  `yaml:"local-vendor-dir" json:"local-vendor-dir" mapstructure:"local-vendor-dir"`
 	SearchRemoteLicenses        bool                    `yaml:"search-remote-licenses" json:"search-remote-licenses" mapstructure:"search-remote-licenses"`
 	Proxies                     []string                `yaml:"proxies,omitempty" json:"proxies,omitempty" mapstructure:"proxies"`
 	NoProxy                     []string                `yaml:"no-proxy,omitempty" json:"no-proxy,omitempty" mapstructure:"no-proxy"`
@@ -41,6 +42,7 @@ type MainModuleVersionConfig struct {
 func DefaultCatalogerConfig() CatalogerConfig {
 	g := CatalogerConfig{
 		MainModuleVersion: DefaultMainModuleVersionConfig(),
+		LocalModCacheDir:  defaultGoModDir(),
 	}
 
 	// first process the proxy settings
@@ -67,28 +69,29 @@ func DefaultCatalogerConfig() CatalogerConfig {
 		}
 	}
 
-	if g.LocalModCacheDir == "" {
-		goPath := os.Getenv("GOPATH")
-
-		if goPath == "" {
-			homeDir, err := homedir.Dir()
-			if err != nil {
-				log.Debug("unable to determine user home dir: %v", err)
-			} else {
-				goPath = path.Join(homeDir, "go")
-			}
-		}
-		if goPath != "" {
-			g.LocalModCacheDir = path.Join(goPath, "pkg", "mod")
-		}
-	}
 	return g
+}
+
+// defaultGoModDir returns $GOPATH/pkg/mod or $HOME/go/pkg/mod based on environment variables available
+func defaultGoModDir() string {
+	goPath := os.Getenv("GOPATH")
+
+	if goPath == "" {
+		homeDir, err := homedir.Dir()
+		if err != nil {
+			log.Debugf("unable to determine GOPATH or user home dir: %w", err)
+			return ""
+		}
+		goPath = filepath.Join(homeDir, "go")
+	}
+
+	return filepath.Join(goPath, "pkg", "mod")
 }
 
 func DefaultMainModuleVersionConfig() MainModuleVersionConfig {
 	return MainModuleVersionConfig{
 		FromLDFlags:       true,
-		FromContents:      true,
+		FromContents:      false,
 		FromBuildSettings: true,
 	}
 }
@@ -103,6 +106,19 @@ func (g CatalogerConfig) WithLocalModCacheDir(input string) CatalogerConfig {
 		return g
 	}
 	g.LocalModCacheDir = input
+	return g
+}
+
+func (g CatalogerConfig) WithSearchLocalVendorLicenses(input bool) CatalogerConfig {
+	g.SearchLocalVendorLicenses = input
+	return g
+}
+
+func (g CatalogerConfig) WithLocalVendorDir(input string) CatalogerConfig {
+	if input == "" {
+		return g
+	}
+	g.LocalVendorDir = input
 	return g
 }
 
