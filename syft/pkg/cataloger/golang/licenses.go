@@ -15,7 +15,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/go-git/go-billy/v5/memfs"
 	"github.com/scylladb/go-set/strset"
 
 	"github.com/anchore/syft/internal"
@@ -270,7 +269,8 @@ func getModule(proxies []string, moduleName, moduleVersion string) (urlPrefix st
 	for _, proxy := range proxies {
 		u, _ := url.Parse(proxy)
 		if proxy == "direct" {
-			urlPrefix, fsys, err = getModuleRepository(moduleName, moduleVersion)
+			// Skip direct repository access since we removed go-git dependency
+			log.WithFields("module", moduleName, "version", moduleVersion).Debug("skipping direct repository access (go-git dependency removed)")
 			continue
 		}
 		switch u.Scheme {
@@ -342,45 +342,6 @@ func findVersionPath(f fs.FS, dir string) string {
 	}
 
 	return ""
-}
-
-func getModuleRepository(moduleName string, moduleVersion string) (fs.FS, error) {
-	// TODO: restore original. deleted to remove circl
-
-	// see if there's a hash and use that if so, otherwise use a tag
-	splitVersion := strings.Split(moduleVersion, "-")
-	var cloneRefName plumbing.ReferenceName
-	refPath := ""
-	if len(splitVersion) < 3 {
-		tagName := splitVersion[0]
-		cloneRefName = plumbing.NewTagReferenceName(tagName)
-		refPath = "/tags/" + tagName
-	}
-
-	f := memfs.New()
-
-	if len(splitVersion) > 2 {
-		sha := splitVersion[len(splitVersion)-1]
-		hash, err := r.ResolveRevision(plumbing.Revision(sha))
-		if err != nil || hash == nil {
-			log.Tracef("unable to resolve hash %s: %v", sha, err)
-		} else {
-			w, err := r.Worktree()
-			if err != nil {
-				log.Tracef("unable to get worktree, using default: %v", err)
-			}
-			err = w.Checkout(&git.CheckoutOptions{
-				Hash: *hash,
-			})
-			if err != nil {
-				log.Tracef("unable to checkout commit, using default: %v", err)
-			} else {
-				refPath = "/refs/" + hash.String()
-			}
-		}
-	}
-
-	return repoURL + refPath + "/", billyFSAdapter{fs: f}, err
 }
 
 type noLicensesFound struct {
