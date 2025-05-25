@@ -10,9 +10,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/sassoftware/go-rpmutils"
-
-	rpmdb "github.com/anchore/go-rpmdb/pkg"
 	"github.com/anchore/syft/internal/log"
 	"github.com/anchore/syft/syft/artifact"
 	"github.com/anchore/syft/syft/file"
@@ -58,59 +55,7 @@ var hashLookup = map[uint8]string{
 
 // parseRpmArchive parses a single RPM
 func parseRpmArchive(ctx context.Context, _ file.Resolver, _ *generic.Environment, reader file.LocationReadCloser) ([]pkg.Package, []artifact.Relationship, error) {
-	rpm, err := rpmutils.ReadRpm(reader)
-	if err != nil {
-		return nil, nil, fmt.Errorf("RPM file found but unable to read: %s (%w)", reader.RealPath, err)
-	}
-
-	nevra, err := rpm.Header.GetNEVRA()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	licenses, err := rpm.Header.GetStrings(rpmutils.LICENSE)
-	logRpmArchiveErr(reader.Location, "license", err)
-
-	sourceRpm, err := rpm.Header.GetString(rpmutils.SOURCERPM)
-	logRpmArchiveErr(reader.Location, "sourcerpm", err)
-
-	vendor, err := rpm.Header.GetString(rpmutils.VENDOR)
-	logRpmArchiveErr(reader.Location, "vendor", err)
-
-	digestAlgorithm := getDigestAlgorithm(reader.Location, rpm.Header)
-
-	size, err := rpm.Header.InstalledSize()
-	logRpmArchiveErr(reader.Location, "size", err)
-
-	files, err := rpm.Header.GetFiles()
-	logRpmArchiveErr(reader.Location, "files", err)
-
-	rsa, err := rpm.Header.GetBytes(rpmutils.SIG_RSA)
-	logRpmArchiveErr(reader.Location, "rsa signature", err)
-
-	pgp, err := rpm.Header.GetBytes(rpmutils.SIG_PGP)
-	logRpmArchiveErr(reader.Location, "pgp signature", err)
-
-	var allSigs [][]byte
-	allSigs = append(allSigs, rsa)
-	allSigs = append(allSigs, pgp)
-	sigs, err := parseSignatureHeaders(allSigs)
-	logRpmArchiveErr(reader.Location, "signature", err)
-
-	metadata := pkg.RpmArchive{
-		Name:       nevra.Name,
-		Version:    nevra.Version,
-		Epoch:      parseEpoch(nevra.Epoch),
-		Arch:       nevra.Arch,
-		Release:    nevra.Release,
-		SourceRpm:  sourceRpm,
-		Signatures: sigs,
-		Vendor:     vendor,
-		Size:       int(size),
-		Files:      mapFiles(files, digestAlgorithm),
-	}
-
-	return []pkg.Package{newArchivePackage(ctx, reader.Location, metadata, licenses)}, nil, nil
+	return nil, nil, fmt.Errorf("RPM archive parsing is disabled: go-rpmutils dependency removed from %s", reader.RealPath)
 }
 
 func parseSignatureHeaders(data [][]byte) ([]pkg.RpmSignature, error) {
@@ -219,44 +164,14 @@ func decodePGPSig(version uint8, r io.Reader) (*pkg.RpmSignature, error) {
 	}, nil
 }
 
-func getDigestAlgorithm(location file.Location, header *rpmutils.RpmHeader) string {
-	digestAlgorithm, err := header.GetString(rpmutils.FILEDIGESTALGO)
-	logRpmArchiveErr(location, "file digest algo", err)
-
-	if digestAlgorithm != "" {
-		return digestAlgorithm
-	}
-	digestAlgorithms, err := header.GetUint32s(rpmutils.FILEDIGESTALGO)
-	logRpmArchiveErr(location, "file digest algo 32-bit", err)
-
-	if len(digestAlgorithms) > 0 {
-		digestAlgo := int(digestAlgorithms[0])
-		return rpmutils.GetFileAlgoName(digestAlgo)
-	}
+func getDigestAlgorithm(location file.Location, header interface{}) string {
+	// RPM archive parsing disabled - go-rpmutils dependency removed
 	return ""
 }
 
-func mapFiles(files []rpmutils.FileInfo, digestAlgorithm string) []pkg.RpmFileRecord {
-	var out []pkg.RpmFileRecord
-	for _, f := range files {
-		digest := file.Digest{}
-		if f.Digest() != "" {
-			digest = file.Digest{
-				Algorithm: digestAlgorithm,
-				Value:     f.Digest(),
-			}
-		}
-		out = append(out, pkg.RpmFileRecord{
-			Path:      f.Name(),
-			Mode:      pkg.RpmFileMode(f.Mode()),
-			Size:      int(f.Size()),
-			Digest:    digest,
-			UserName:  f.UserName(),
-			GroupName: f.GroupName(),
-			Flags:     rpmdb.FileFlags(f.Flags()).String(),
-		})
-	}
-	return out
+func mapFiles(files interface{}, digestAlgorithm string) []pkg.RpmFileRecord {
+	// RPM archive parsing disabled - go-rpmutils dependency removed
+	return nil
 }
 
 func parseEpoch(epoch string) *int {
